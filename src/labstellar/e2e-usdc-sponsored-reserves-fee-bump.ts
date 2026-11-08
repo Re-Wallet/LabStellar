@@ -1,6 +1,6 @@
 /**
  * Script de validación: Sponsored Reserves + Pago USDC.
- * `npm run sponsored:usdc`
+ * `npm run e2e:usdc-fee-bump-sponsored-reserves`
  *
  * Flujo:
  * 1. Crea wallet A vía Sponsored Reserves (CAP-33/CAP-31): sponsor paga el reserve
@@ -15,7 +15,7 @@
  *
  * Variables de entorno requeridas:
  *   SPONSOR_SECRET_KEY — cuenta sponsor con XLM en Testnet (virgen, sin patrocinios previos).
- *   SOZU_FAUCET_URL — (opcional) origen del faucet Sozu.
+ *   SOZU_FAUCET_URL     — (opcional) origen del faucet Sozu.
  *
  * Nota: Para obtener USDC en wallet A, usar Sozu Faucet:
  *   npx @sozu/faucet claim <DIRECCION_DE_A>
@@ -35,6 +35,7 @@ import { StellarSponsoredWalletProvider } from '../infrastructure/stellar/Stella
 import { StellarPaymentSubmitter } from '../infrastructure/stellar/StellarPaymentSubmitter';
 import { CreateFundedWallet } from '../application/use-cases/CreateFundedWallet';
 import { SendSponsoredPayment } from '../application/use-cases/SendSponsoredPayment';
+import { EnvSecretProvider } from '../infrastructure/secret/EnvSecretProvider';
 
 const HORIZON_URL = 'https://horizon-testnet.stellar.org';
 const SOZU_FAUCET_URL = 'https://faucet.sozu.capital';
@@ -95,11 +96,11 @@ async function waitForAccount(
 }
 
 async function main() {
-  const sponsorSecret = requireEnv('SPONSOR_SECRET_KEY');
+  const sponsorSecretProvider = new EnvSecretProvider('SPONSOR_SECRET_KEY');
 
   // 1. Wallet A vía Sponsored Reserves (sin Friendbot, sin Sozu).
   const sponsoredProvider = new StellarSponsoredWalletProvider(
-    sponsorSecret,
+    sponsorSecretProvider,
     HORIZON_URL,
   );
   const createWalletUseCase = new CreateFundedWallet(sponsoredProvider);
@@ -115,6 +116,7 @@ async function main() {
   // El sponsor le envía XLM para comisiones.
   console.log('🔹 Sponsor fondea a A con 2 XLM para comisiones…');
   const server = new Horizon.Server(HORIZON_URL);
+  const sponsorSecret = await sponsorSecretProvider.getSponsorSecret();
   const sponsorKeypair = Keypair.fromSecret(sponsorSecret);
   const sponsorAccount = await server.loadAccount(sponsorKeypair.publicKey());
   const fundTx = new TransactionBuilder(sponsorAccount, {
@@ -136,8 +138,8 @@ async function main() {
 
   // 2. IMPORTANTE: Fondear A con USDC antes de poder pagar.
   //    Usar Sozu Faucet claim a la dirección de A:
-  //    npx @sozu/faucet claim GB...DIRECCION_DE_A
-  //  O recibir USDC de otra wallet.
+  //    npx @sozu/faucet claim GA...DIRECCION_DE_A
+  // O recibir USDC de otra wallet.
   console.log('');
   console.log('⚠️  PASO REQUERIDO: Fondear wallet A con USDC antes de continuar.');
   console.log(`   Ejecutar: npx @sozu/faucet claim ${walletA.address}`);
@@ -201,7 +203,7 @@ async function main() {
 
   // 6. Fee-bump: el sponsor paga la comisión de red.
   console.log('🔹 Enviando pago patrocinado (fee-bump)…');
-  const submitter = new StellarPaymentSubmitter(sponsorSecret, HORIZON_URL);
+  const submitter = new StellarPaymentSubmitter(sponsorSecretProvider, HORIZON_URL);
   const sendPayment = new SendSponsoredPayment(submitter);
   const hash = await sendPayment.execute(txXdr);
 

@@ -18,13 +18,14 @@ import { SozuWalletProvider } from '../../infrastructure/sozu/SozuWalletProvider
 import { StellarPaymentSubmitter } from '../../infrastructure/stellar/StellarPaymentSubmitter';
 import { CreateFundedWallet } from '../../application/use-cases/CreateFundedWallet';
 import { SendSponsoredPayment } from '../../application/use-cases/SendSponsoredPayment';
+import { EnvSecretProvider } from '../../infrastructure/secret/EnvSecretProvider';
 
 const HORIZON_URL = 'https://horizon-testnet.stellar.org';
 const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const USDC = new Asset('USDC', USDC_ISSUER);
 
 const e2e = process.env.E2E === 'true' && !!process.env.SPONSOR_SECRET_KEY;
-const sponsorSecret = process.env.SPONSOR_SECRET_KEY ?? '';
+const sponsorSecretProvider = new EnvSecretProvider('SPONSOR_SECRET_KEY');
 
 const itE2E = e2e ? it : it.skip;
 
@@ -80,7 +81,7 @@ describe('fee-bump E2E (Testnet)', () => {
       const xdr = paymentTx.toXDR();
 
       // 4. Fee-bump: el sponsor paga la comisión.
-      const submitter = new StellarPaymentSubmitter(sponsorSecret, HORIZON_URL);
+      const submitter = new StellarPaymentSubmitter(sponsorSecretProvider, HORIZON_URL);
       const sendPayment = new SendSponsoredPayment(submitter);
       const hash = await sendPayment.execute(xdr);
       expect(hash).toMatch(/^[a-f0-9]{64}$/);
@@ -91,6 +92,7 @@ describe('fee-bump E2E (Testnet)', () => {
       expect(Number(tx.fee_charged || 0)).toBeGreaterThan(0);
 
       // 6. El fee_account (pagador de la comisión) debe ser el sponsor.
+      const sponsorSecret = await sponsorSecretProvider.getSponsorSecret();
       const sponsor = Keypair.fromSecret(sponsorSecret);
       expect(tx.source_account).toBe(sponsor.publicKey());
     },

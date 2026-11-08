@@ -1,5 +1,5 @@
 /**
- * Script de validación E2E: `npm run demo`.
+ * Script de validación E2E: `npm run e2e:usdc-fee-bump-sozu`.
  *
  * Flujo:
  * 1. Crea wallet A (vía Sozu Faucet) — fondada con USDC.
@@ -26,6 +26,7 @@ import { SozuWalletProvider } from '../infrastructure/sozu/SozuWalletProvider';
 import { StellarPaymentSubmitter } from '../infrastructure/stellar/StellarPaymentSubmitter';
 import { CreateFundedWallet } from '../application/use-cases/CreateFundedWallet';
 import { SendSponsoredPayment } from '../application/use-cases/SendSponsoredPayment';
+import { EnvSecretProvider } from '../infrastructure/secret/EnvSecretProvider';
 
 const HORIZON_URL = 'https://horizon-testnet.stellar.org';
 const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
@@ -84,7 +85,7 @@ async function waitForAccount(
 }
 
 async function main() {
-  const sponsorSecret = requireEnv('SPONSOR_SECRET_KEY');
+  const sponsorSecretProvider = new EnvSecretProvider('SPONSOR_SECRET_KEY');
 
   // 1. Wallet A (usuario final) vía Sozu.
   const walletProvider = new SozuWalletProvider();
@@ -134,7 +135,10 @@ async function main() {
 
   // 4. Enviar con fee-bump (sponsor paga la comisión de red).
   console.log('🔹 Enviando pago patrocinado (fee-bump)…');
-  const submitter = new StellarPaymentSubmitter(sponsorSecret, HORIZON_URL);
+  const submitter = new StellarPaymentSubmitter(
+    sponsorSecretProvider,
+    HORIZON_URL,
+  );
   const sendPayment = new SendSponsoredPayment(submitter);
   const hash = await sendPayment.execute(txXdr);
 

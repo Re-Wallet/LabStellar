@@ -1,6 +1,6 @@
 /**
  * Script de validación rápida: Sponsored Reserves.
- * `npm run sponsored`
+ * `npm run e2e:xlm-fee-bump-sponsored-reserves`
  *
  * Crea wallet A sin Friendbot ni Sozu: el sponsor paga el reserve de la cuenta
  * y el reserve de la trustline USDC. Luego envía 1 XLM de A → B con fee-bump
@@ -21,6 +21,7 @@ import { StellarSponsoredWalletProvider } from '../infrastructure/stellar/Stella
 import { StellarPaymentSubmitter } from '../infrastructure/stellar/StellarPaymentSubmitter';
 import { CreateFundedWallet } from '../application/use-cases/CreateFundedWallet';
 import { SendSponsoredPayment } from '../application/use-cases/SendSponsoredPayment';
+import { EnvSecretProvider } from '../infrastructure/secret/EnvSecretProvider';
 
 const HORIZON_URL = 'https://horizon-testnet.stellar.org';
 const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
@@ -39,7 +40,6 @@ async function buildAndSignPayment(
   fromAddress: string,
   toAddress: string,
   amount: string,
-  asset: Asset,
 ): Promise<string> {
   const server = new Horizon.Server(HORIZON_URL);
   const sourceKeypair = Keypair.fromSecret(fromSecret);
@@ -52,7 +52,7 @@ async function buildAndSignPayment(
     .addOperation(
       Operation.payment({
         destination: toAddress,
-        asset,
+        asset: Asset.native(),
         amount,
       }),
     )
@@ -80,11 +80,11 @@ async function waitForAccount(
 }
 
 async function main() {
-  const sponsorSecret = requireEnv('SPONSOR_SECRET_KEY');
+  const sponsorSecretProvider = new EnvSecretProvider('SPONSOR_SECRET_KEY');
 
   // 1. Wallet A vía Sponsored Reserves (sin Friendbot, sin Sozu).
   const sponsoredProvider = new StellarSponsoredWalletProvider(
-    sponsorSecret,
+    sponsorSecretProvider,
     HORIZON_URL,
   );
   const createWalletUseCase = new CreateFundedWallet(sponsoredProvider);
@@ -100,6 +100,7 @@ async function main() {
   // envía un poco de XLM para que pueda pagar comisiones de transacciones internas.
   console.log('🔹 Sponsor fondea a A con 2 XLM para comisiones…');
   const server = new Horizon.Server(HORIZON_URL);
+  const sponsorSecret = await sponsorSecretProvider.getSponsorSecret();
   const sponsorKeypair = Keypair.fromSecret(sponsorSecret);
   const sponsorAccount = await server.loadAccount(sponsorKeypair.publicKey());
   const fundTx = new TransactionBuilder(sponsorAccount, {
@@ -149,13 +150,12 @@ async function main() {
     walletA.address,
     walletB.publicKey(),
     '1', // 1 XLM
-    Asset.native(),
   );
   console.log(`   XDR firmado por A (${txXdr.length} bytes).`);
 
   // 4. Fee-bump: el sponsor paga la comisión de red.
   console.log('🔹 Enviando pago patrocinado (fee-bump)…');
-  const submitter = new StellarPaymentSubmitter(sponsorSecret, HORIZON_URL);
+  const submitter = new StellarPaymentSubmitter(sponsorSecretProvider, HORIZON_URL);
   const sendPayment = new SendSponsoredPayment(submitter);
   const hash = await sendPayment.execute(txXdr);
 

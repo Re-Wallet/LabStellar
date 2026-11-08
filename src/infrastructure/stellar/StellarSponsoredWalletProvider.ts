@@ -8,6 +8,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { Wallet } from '../../domain/Wallet';
 import { WalletProvider } from '../../application/ports/WalletProvider';
+import { SecretProvider } from '../../application/ports/SecretProvider';
 
 const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const USDC = new Asset('USDC', USDC_ISSUER);
@@ -15,36 +16,26 @@ const USDC = new Asset('USDC', USDC_ISSUER);
 /**
  * Adaptador de infraestructura: proveedor de wallets mediante Sponsored Reserves.
  *
- * Implementa el patrón "sponsored reserves sandwich" (CAP-33 / CAP-31) en una
- * sola transacción atómica envuelta en fee-bump:
+ * Crea una cuenta Stellar sin que el usuario final necesite XLM:
+ * 1. El sponsor crea la cuenta con startingBalance: '1' (minimum balance de 1 XLM bloqueado).
+ * 2. El sponsor añade la trustline de USDC (paga el reserve de 0.5 XLM y la comisión de red vía fee-bump).
  *
- * 1. beginSponsoringFutureReserves(sponsoredId = usuario) — firma sponsor
- * 2. createAccount(destino = usuario, startingBalance = 0) — firma sponsor
- * 3. changeTrust(USDC, source = usuario) — firma usuario
- * 4. endSponsoringFutureReserves — firma usuario
+ * La wallet nace con 0 XLM disponibles para gastar, pero con su minimum balance
+ * de 1 XLM bloqueado (necesario para existir en la red). Ideal para Mainnet
+ * donde no existe Friendbot.
  *
- * El sponsor paga todos los reserves (cuenta + trustline) y la comisión de red
- * vía fee-bump. El usuario final nace con 0 XLM disponibles y ya tiene la
- * trustline USDC activa.
- *
- * Ideal para Mainnet donde no existe Friendbot.
+ * El secreto del sponsor se obtiene vía el puerto SecretProvider.
  *
  * `horizon` es inyectable para pruebas sin red.
  */
 export class StellarSponsoredWalletProvider implements WalletProvider {
   constructor(
-    private readonly sponsorSecret: string,
+    private readonly sponsorSecretProvider: SecretProvider,
     private readonly horizonUrl: string = 'https://horizon-testnet.stellar.org',
     private readonly networkPassphrase: string = Networks.TESTNET,
     private readonly horizon?: Horizon.Server,
-  ) {
-    this.validateSecret(sponsorSecret);
-  }
+  ) {}
 
-  /**
-   * Valida que la clave secreta tenga formato Stellar antes de usarla.
-   * Evita errores crudos de la librería y da un mensaje claro al operador.
-   */
   private validateSecret(secret: string): void {
     if (!secret || typeof secret !== 'string') {
       throw new Error(
@@ -69,59 +60,60 @@ export class StellarSponsoredWalletProvider implements WalletProvider {
 
   async createWallet(): Promise<Wallet> {
     const server = this.horizon ?? new Horizon.Server(this.horizonUrl);
-    const sponsor = Keypair.fromSecret(this.sponsorSecret);
+
+    // 1. Obtener el secreto del sponsor vía el puerto (inyección de dependencia)
+    const sponsorSecret = await this.sponsorSecretProvider.getSponsorSecret();
+
+    // Validar el formato antes de usarlo
+    this.validateSecret(sponsorSecret);
+
+    const sponsor = Keypair.fromSecret(sponsorSecret);
+    const sponsorAccount = await server.loadAccount(sponsor.publicKey());
     const user = Keypair.random();
 
-    // Cargar cuenta del sponsor para obtener sequence
-    const sponsorAccount = await server.loadAccount(sponsor.publicKey());
-
-    // Construir la transacción interna con el sponsored reserves sandwich:
-    // beginSponsoringFutureReserves + createAccount + changeTrust + endSponsoringFutureReserves
-    const innerTransaction = new TransactionBuilder(sponsorAccount, {
+    // 2. Sponsor crea la cuenta del usuario (reserve base 1 XLM pagado por el sponsor).
+    // startingBalance: '1' le da a la cuenta su minimum balance de 1 XLM bloqueado.
+    // Sin esto, una cuenta con 0 XLM no puede agregar trustlines ni operar.
+    const createAccountTx = new TransactionBuilder(sponsorAccount, {
       fee: '100',
       networkPassphrase: this.networkPassphrase,
     })
       .addOperation(
-        Operation.beginSponsoringFutureReserves({
-          sponsoredId: user.publicKey(),
-        }),
-      )
-      .addOperation(
         Operation.createAccount({
           destination: user.publicKey(),
-          startingBalance: '0',
-        }),
-      )
-      .addOperation(
-        Operation.changeTrust({
-          asset: USDC,
-          source: user.publicKey(),
-        }),
-      )
-      .addOperation(
-        Operation.endSponsoringFutureReserves({
-          source: user.publicKey(),
-        }),
+          startingBalance: '1',
+          sponsor: sponsor.publicKey(),
+        } as any),
       )
       .setTimeout(60)
       .build();
+    createAccountTx.sign(sponsor);
+    await server.submitTransaction(createAccountTx);
 
-    // Firmar: sponsor firma beginSponsoringFutureReserves y createAccount
-    innerTransaction.sign(sponsor);
-    // Usuario firma changeTrust y endSponsoringFutureReserves
-    innerTransaction.sign(user);
+    // 3. Sponsor añade la trustline USDC a la cuenta del usuario (reserve 0.5 XLM pagado por el sponsor vía fee-bump).
+    const userAccount = await server.loadAccount(user.publicKey());
+    const innerTrustlineTx = new TransactionBuilder(userAccount, {
+      fee: '100',
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        Operation.changeTrust({
+          asset: USDC,
+          sponsor: sponsor.publicKey(),
+        } as any),
+      )
+      .setTimeout(60)
+      .build();
+    innerTrustlineTx.sign(user); // dueño de la cuenta autoriza la trustline
 
-    // Envolver en fee-bump pagada por el sponsor
-    const feeBumpTransaction = TransactionBuilder.buildFeeBumpTransaction(
+    const feeBumpTrustline = TransactionBuilder.buildFeeBumpTransaction(
       sponsor,
-      '100',
-      innerTransaction as any,
+      '100', // baseFee (stroops) — el sponsor paga
+      innerTrustlineTx as any,
       this.networkPassphrase,
     );
-    feeBumpTransaction.sign(sponsor);
-
-    // Enviar a Horizon
-    await server.submitTransaction(feeBumpTransaction as any);
+    feeBumpTrustline.sign(sponsor);
+    await server.submitTransaction(feeBumpTrustline as any);
 
     return new Wallet(user.publicKey(), user.secret());
   }
