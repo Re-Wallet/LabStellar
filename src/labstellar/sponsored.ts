@@ -3,7 +3,7 @@
  * `npm run sponsored`
  *
  * Crea wallet A sin Friendbot ni Sozu: el sponsor paga el reserve de la cuenta
- * y el reserve de la trustline USDC. Luego envía 1 USDC de A → B con fee-bump
+ * y el reserve de la trustline USDC. Luego envía 1 XLM de A → B con fee-bump
  * (el sponsor también paga la comisión de red).
  *
  * Variables de entorno requeridas:
@@ -39,6 +39,7 @@ async function buildAndSignPayment(
   fromAddress: string,
   toAddress: string,
   amount: string,
+  asset: Asset,
 ): Promise<string> {
   const server = new Horizon.Server(HORIZON_URL);
   const sourceKeypair = Keypair.fromSecret(fromSecret);
@@ -51,7 +52,7 @@ async function buildAndSignPayment(
     .addOperation(
       Operation.payment({
         destination: toAddress,
-        asset: USDC,
+        asset,
         amount,
       }),
     )
@@ -95,12 +96,34 @@ async function main() {
     throw new Error('Wallet A no devolvió secret');
   }
 
+  // Wallet A tiene 0 XLM disponibles (mínimo balance bloqueado). El sponsor le
+  // envía un poco de XLM para que pueda pagar comisiones de transacciones internas.
+  console.log('🔹 Sponsor fondea a A con 2 XLM para comisiones…');
+  const server = new Horizon.Server(HORIZON_URL);
+  const sponsorKeypair = Keypair.fromSecret(sponsorSecret);
+  const sponsorAccount = await server.loadAccount(sponsorKeypair.publicKey());
+  const fundTx = new TransactionBuilder(sponsorAccount, {
+    fee: '100',
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(
+      Operation.payment({
+        destination: walletA.address,
+        asset: Asset.native(),
+        amount: '2',
+      }),
+    )
+    .setTimeout(300)
+    .build();
+  fundTx.sign(sponsorKeypair);
+  await server.submitTransaction(fundTx);
+  console.log('   ✅ Wallet A tiene 2 XLM disponibles para comisiones.');
+
   // 2. Wallet B (destinatario): Friendbot + trustline USDC.
   console.log('🔹 Creando y fondando wallet B (destinatario)…');
   const walletB = Keypair.random();
   console.log(`   Dirección B: ${walletB.publicKey()}`);
 
-  const server = new Horizon.Server(HORIZON_URL);
   await fetch(
     `https://friendbot.stellar.org?addr=${encodeURIComponent(
       walletB.publicKey(),
@@ -119,13 +142,14 @@ async function main() {
   await server.submitTransaction(trustlineTx);
   console.log('   Trustline USDC añadida a B.');
 
-  // 3. Pago USDC de A → B firmado por A.
-  console.log('🔹 Construyendo y firmando pago USDC de A → B…');
+  // 3. Pago XLM de A → B firmado por A (USDC no tiene balance en A, usamos XLM nativo).
+  console.log('🔹 Construyendo y firmando pago XLM de A → B…');
   const txXdr = await buildAndSignPayment(
     walletA.secret,
     walletA.address,
     walletB.publicKey(),
-    '1',
+    '1', // 1 XLM
+    Asset.native(),
   );
   console.log(`   XDR firmado por A (${txXdr.length} bytes).`);
 
@@ -141,6 +165,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('❌ Sponsored falló:', err instanceof Error ? err.message : err);
+  const detail: any = err.response?.data ?? err.response?.extras ?? err.message;
+  console.error('❌ Sponsored falló con detalle:', JSON.stringify(detail, null, 2));
   process.exit(1);
 });
