@@ -568,11 +568,8 @@ Esta PoC valida el mecanismo principal de **fee-bump**, **sponsored reserves** y
 
 1. **Persistencia de secretos del sponsor**: Ya implementada vía `SecretProvider` (variable de entorno y archivo cifrado). Para producción, usar AWS Secrets Manager, HashiCorp Vault, o similar.
 2. **Completar KYC en Pollar**: El on-ramp se queda en estado `KYC` (verificación de identidad). El usuario debe completar el KYC manualmente vía la URL que Pollar proporciona. Para producción, integrar este flujo en el frontend.
-3. **Más assets**: Soportar otros tokens además de USDC (Circle SAC).
-4. **Frontend**: Conectar esta lógica a una interfaz de usuario para el onboarding y on/off-ramp.
-5. **Sponsored reserves en producción**: Implementar patrocinio de trustlines y cuentas manualmente para Mainnet (donde no existe Friendbot).
-6. **SDK @pollar/core en navegador**: Para producción frontend, usar el SDK de Pollar con `login()`, `setUpRampWallet()`, `signRampLeg()` y `pollRampOrder()` en un entorno de navegador (no funciona en Node.js debido a `ORIGIN_NOT_ALLOWED`).
-7. **Off-ramp con USDC real**: Una vez completado el on-ramp y recibido USDC en la wallet del usuario, ejecutar el off-ramp para convertir USDC → fiat.
+3. **SDK @pollar/core en navegador**: Para producción frontend, usar el SDK de Pollar con `login()`, `setUpRampWallet()`, `signRampLeg()` y `pollRampOrder()` en un entorno de navegador (no funciona en Node.js debido a `ORIGIN_NOT_ALLOWED`).
+4. **Off-ramp con USDC real**: Una vez completado el on-ramp y recibido USDC en la wallet del usuario, ejecutar el off-ramp para convertir USDC → fiat.
 
 ---
 
