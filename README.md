@@ -31,10 +31,10 @@ src/
 │   └── stellar/
 │       ├── StellarPaymentSubmitter.ts # buildFeeBumpTransaction + submit a Horizon
 │       └── StellarSponsoredWalletProvider.ts # Sponsored Reserves (CAP-33/CAP-31)
-└── labstellar/             # Punto de entrada E2E (scripts de validación)
-    ├── index.ts            # Demo con Sozu Faucet (pago USDC)
-    ├── sponsored.ts        # Demo con Sponsored Reserves (pago XLM nativo)
-    └── sponsored-usdc.ts   # Demo con Sponsored Reserves + pago USDC
+└── labstellar/             # Puntos de entrada E2E (scripts de validación en Testnet)
+    ├── e2e-usdc-sozu-fee-bump.ts            # Pago USDC con Sozu Faucet + fee-bump
+    ├── e2e-xlm-sponsored-reserves-fee-bump.ts  # Pago XLM con Sponsored Reserves + fee-bump
+    └── e2e-usdc-sponsored-reserves-fee-bump.ts # Pago USDC con Sponsored Reserves + fee-bump
 ```
 
 **Regla de oro respetada:** El dominio y los casos de uso no importan nada de `@stellar/stellar-sdk` ni de `child_process`. Solo dependen de las interfaces (puertos).
@@ -81,22 +81,44 @@ export SOZU_FAUCET_URL="https://faucet.sozu.capital"  # opcional
 
 ## ▶️ Ejecutar la Validación E2E
 
-### Demo 1: Pago USDC con Sozu Faucet
+### Prueba 1: Pago USDC con Sozu Faucet + Fee-Bump
 
 ```bash
-npm run demo
+npm run e2e:usdc-fee-bump-sozu
 ```
 
-### Demo 2: Pago XLM con Sponsored Reserves (sin Friendbot)
+Flujo:
+1. Wallet A se crea vía Sozu Faucet (`npx @sozu/faucet claim`). Nace con USDC y 0 XLM para el usuario.
+2. Wallet B se genera aleatoriamente, se fonda con Friendbot y se le añade la trustline de USDC.
+3. Se construye y firma una transacción de pago USDC de A → B con la secret de A.
+4. El XDR se envuelve en una fee-bump transaction con `buildFeeBumpTransaction`, se firma con el sponsor y se envía a Horizon.
+5. Se imprime el hash de la transacción en consola.
+
+---
+
+### Prueba 2: Pago XLM con Sponsored Reserves + Fee-Bump (sin Friendbot)
 
 ```bash
-npm run sponsored
+npm run e2e:xlm-fee-bump-sponsored-reserves
 ```
 
-### Demo 3: Pago USDC con Sponsored Reserves (sin Friendbot)
+Flujo:
+1. Wallet A se crea vía Sponsored Reserves (CAP-33/CAP-31):
+   - `beginSponsoringFutureReserves` + `createAccount` (sponsor paga 1 XLM de reserve).
+   - `changeTrust(USDC)` + `endSponsoringFutureReserves` (sponsor paga 0.5 XLM de reserve).
+   Todo envuelto en fee-bump pagada por el sponsor.
+2. Sponsor envía 2 XLM a A para comisiones disponibles (A nace con 0 XLM gastables).
+3. Wallet B se genera aleatoriamente, se fonda con Friendbot y se le añade la trustline de USDC.
+4. Se construye y firma una transacción de pago XLM nativo de A → B con la secret de A.
+5. El XDR se envuelve en una fee-bump transaction y se envía a Horizon.
+6. Se imprime el hash de la transacción en consola.
+
+---
+
+### Prueba 3: Pago USDC con Sponsored Reserves + Fee-Bump (sin Friendbot)
 
 ```bash
-npm run sponsored:usdc
+npm run e2e:usdc-fee-bump-sponsored-reserves
 ```
 
 > **⚠️ Requisito previo:** Wallet A debe tener saldo de USDC antes de ejecutar el pago.
@@ -105,39 +127,18 @@ npm run sponsored:usdc
 > npx @sozu/faucet claim <DIRECCION_DE_A>
 > ```
 
-### Flujo del script `src/labstellar/index.ts`
-
-1. **Wallet A (usuario final)** — Se crea vía Sozu Faucet (`npx @sozu/faucet claim`). La wallet nace con USDC y 0 XLM para el usuario.
-2. **Wallet B (destinatario)** — Se genera aleatoriamente, se fonda con Friendbot y se le añade la trustline de USDC.
-3. **Pago USDC A → B** — Se construye y firma una transacción de pago con la secret de A. Se obtiene el XDR firmado.
-4. **Fee-Bump (sponsor paga)** — El XDR se envuelve en una fee-bump transaction con `buildFeeBumpTransaction`, se firma con el sponsor y se envía a Horizon.
-5. **Salida** — Se imprime el hash de la transacción en consola.
-
-### Flujo del script `src/labstellar/sponsored.ts`
-
-1. **Wallet A (usuario final)** — Se crea vía Sponsored Reserves (CAP-33/CAP-31):
-   - `beginSponsoringFutureReserves` + `createAccount` (sponsor paga 1 XLM de reserve).
-   - `changeTrust(USDC)` + `endSponsoringFutureReserves` (sponsor paga 0.5 XLM de reserve).
-   Todo envuelto en fee-bump pagada por el sponsor.
-2. **Sponsor envía 2 XLM a A** para comisiones disponibles (A nace con 0 XLM gastables).
-3. **Wallet B (destinatario)** — Se genera aleatoriamente, se fonda con Friendbot y se le añade la trustline de USDC.
-4. **Pago XLM A → B** — Se construye y firma una transacción de pago XLM nativo con la secret de A.
-5. **Fee-Bump (sponsor paga)** — El XDR se envuelve en una fee-bump transaction y se envía a Horizon.
-6. **Salida** — Se imprime el hash de la transacción en consola.
-
-### Flujo del script `src/labstellar/sponsored-usdc.ts`
-
-1. **Wallet A (usuario final)** — Se crea vía Sponsored Reserves (CAP-33/CAP-31):
+Flujo:
+1. Wallet A se crea vía Sponsored Reserves (CAP-33/CAP-31):
    - `beginSponsoringFutureReserves` + `createAccount` (sponsor paga 1 XLM de reserve).
    - `changeTrust(USDC)` + `endSponsoringFutureReserves` (sponsor paga 0.5 XLM de reserve).
    Todo envuelto en fee-bump pagada por el sponsor.
    - **A nace con 0 XLM gastables y 0 USDC balance.**
-2. **Sponsor envía 2 XLM a A** para comisiones disponibles.
+2. Sponsor envía 2 XLM a A para comisiones disponibles.
 3. **Fondear A con USDC** — **Paso manual requerido:** usar Sozu Faucet (`npx @sozu/faucet claim <DIRECCION_DE_A>`) o recibir USDC de otra wallet.
-4. **Wallet B (destinatario)** — Se genera aleatoriamente, se fonda con Friendbot y se le añade la trustline de USDC.
-5. **Pago USDC A → B** — Se construye y firma una transacción de pago USDC con la secret de A.
-6. **Fee-Bump (sponsor paga)** — El XDR se envuelve en una fee-bump transaction y se envía a Horizon.
-7. **Salida** — Se imprime el hash de la transacción en consola.
+4. Wallet B se genera aleatoriamente, se fonda con Friendbot y se le añade la trustline de USDC.
+5. Se construye y firma una transacción de pago USDC de A → B con la secret de A.
+6. El XDR se envuelve en una fee-bump transaction y se envía a Horizon.
+7. Se imprime el hash de la transacción en consola.
 
 > **Nota importante sobre USDC con Sponsored Reserves:** Wallet A nace con la **trustline USDC activa** pero **sin balance de USDC**. Para hacer un pago en USDC de A → B, primero debe **fundearse A con USDC** (vía faucet o pago directo), ya que el patrón de sponsorship solo cubre el reserve de la cuenta y el reserve de la trustline, no el saldo del activo.
 
@@ -169,26 +170,39 @@ npm run sponsored:usdc
 | **Ledger** | 5621655 |
 | **Fecha** | 2026-11-08T09:58:37Z |
 
+### Transacción 3: Sponsored Reserves + Pago USDC
+
+| Campo | Valor |
+|-------|-------|
+| **Hash** | `db0ae64a00f266c433102c3d0d9d5d20874a0a5d15b59d45119d9c36417e2561` |
+| **Estado** | ✅ `successful: true` |
+| **Fee pagada por** (fee_account) | `GBK6IQBLLQ6T7ZMHNVTZUVQ6ETISGVZUVWWAP5SJPPBUD66PM4RZFIRI` (sponsor) |
+| **Wallet emisora** (source_account) | `GA4QPRBYM2PQVECGLUXBGFQUZBQNHIJA4K4OIVKBXVVIETDQFQNDLYEI` (wallet A) |
+| **Comisión cobrada** | 200 stroops |
+| **Ledger** | 5621811 |
+| **Fecha** | 2026-11-08T10:11:37Z |
+
 ### Enlaces de verificación
 
 - **Transacción 1 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/8028aabbd79ad15d003b3555a26534019a36772d7bc7d21aa74f194680d8aa7b
 - **Transacción 2 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/48d42eecfc2797ecf209ae2ebe1300bb2233eb917436b4df1509aed0f4bb8055
+- **Transacción 3 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/db0ae64a00f266c433102c3d0d9d5d20874a0a5d15b59d45119d9c36417e2561
 
 ### Evidencia en cadena (respuesta de Horizon)
 
-**Transacción 2 (Sponsored Reserves):**
+**Transacción 3 (Sponsored Reserves + USDC):**
 
 ```json
 {
   "successful": true,
-  "hash": "48d42eecfc2797ecf209ae2ebe1300bb2233eb917436b4df1509aed0f4bb8055",
-  "source_account": "GBLHMN6HUKTLL72BY7BHL4UYIE2UBV5O3MBWGHFGYD2ICSAAU4ONPFSZ",
+  "hash": "db0ae64a00f266c433102c3d0d9d5d20874a0a5d15b59d45119d9c36417e2561",
+  "source_account": "GA4QPRBYM2PQVECGLUXBGFQUZBQNHIJA4K4OIVKBXVVIETDQFQNDLYEI",
   "fee_account": "GBK6IQBLLQ6T7ZMHNVTZUVQ6ETISGVZUVWWAP5SJPPBUD66PM4RZFIRI",
   "fee_charged": "200",
   "max_fee": "200",
   "fee_bump_transaction": true,
   "inner_transaction": {
-    "hash": "41566742f7a1e09f2668c9bd8c1cb9c423b174ef2a8028fc1c0a7a73746c548d",
+    "hash": "2548eb84924cb9d68410b076e076384ab43832b62df6d5e122206081e8f402f6",
     "max_fee": "100"
   }
 }
@@ -220,9 +234,9 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 
 | Script | Descripción |
 |--------|-------------|
-| `npm run demo` | Ejecuta el flujo E2E con Sozu Faucet contra Testnet y muestra el hash |
-| `npm run sponsored` | Ejecuta el flujo Sponsored Reserves contra Testnet y muestra el hash |
-| `npm run sponsored:usdc` | Ejecuta el flujo Sponsored Reserves + pago USDC contra Testnet (requiere fondear A con USDC primero) |
+| `npm run e2e:usdc-fee-bump-sozu` | Ejecuta el flujo E2E con Sozu Faucet + fee-bump (pago USDC) contra Testnet y muestra el hash |
+| `npm run e2e:xlm-fee-bump-sponsored-reserves` | Ejecuta el flujo Sponsored Reserves + fee-bump (pago XLM nativo) contra Testnet y muestra el hash |
+| `npm run e2e:usdc-fee-bump-sponsored-reserves` | Ejecuta el flujo Sponsored Reserves + fee-bump (pago USDC) contra Testnet (requiere fondear A con USDC primero) |
 | `npm test` | Ejecuta tests unitarios (sin red) |
 | `npm run test:integration` | Ejecuta tests de integración contra Testnet (requiere `E2E=true`) |
 | `npm run lint` | Verifica tipos con `tsc --noEmit` |
@@ -234,9 +248,9 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 
 - [x] `tsc --noEmit` compila sin errores
 - [x] `npm test` pasa sin errores (tests unitarios, integración skippeada sin red)
-- [x] `npm run demo` finaliza con hash de transacción exitoso
-- [x] `npm run sponsored` finaliza con hash de transacción exitoso
-- [x] `npm run sponsored:usdc` compila y está listo para ejecutar (requiere fondear A con USDC)
+- [x] `npm run e2e:usdc-fee-bump-sozu` finaliza con hash de transacción exitoso
+- [x] `npm run e2e:xlm-fee-bump-sponsored-reserves` finaliza con hash de transacción exitoso
+- [x] `npm run e2e:usdc-fee-bump-sponsored-reserves` compila y está listo para ejecutar (requiere fondear A con USDC)
 - [x] Las transacciones aparecen como exitosas en Stellar Expert Testnet
 - [x] La comisión fue pagada por la cuenta del sponsor, no por la wallet A (fee-bump)
 - [x] La wallet A tuvo 0 XLM para el usuario final (fondada solo con USDC o Sponsored Reserves)

@@ -6,9 +6,9 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "demo": "ts-node src/labstellar/index.ts",
-    "sponsored": "ts-node src/labstellar/sponsored.ts",
-    "sponsored:usdc": "ts-node src/labstellar/sponsored-usdc.ts",
+    "e2e:usdc-fee-bump-sozu": "ts-node src/labstellar/e2e-usdc-sozu-fee-bump.ts",
+    "e2e:xlm-fee-bump-sponsored-reserves": "ts-node src/labstellar/e2e-xlm-sponsored-reserves-fee-bump.ts",
+    "e2e:usdc-fee-bump-sponsored-reserves": "ts-node src/labstellar/e2e-usdc-sponsored-reserves-fee-bump.ts",
     "test": "vitest run",
     "test:integration": "vitest run --dir src/__tests__/integration",
     "lint": "tsc --noEmit"
