@@ -7,7 +7,7 @@ Prueba de concepto de onboarding y transferencia de USDC sin que el usuario fina
 
 ## 🎯 Objetivo validado
 
-Se demostró que una wallet A con **0 XLM** (fondada solo con USDC vía Sozu Faucet) puede enviar USDC a una wallet B, y la comisión de red es pagada por una **cuenta sponsor** mediante fee-bump, no por el usuario final.
+Se demostró que una wallet A con **0 XLM** (fondada solo con USDC vía Sozu Faucet o Sponsored Reserves) puede enviar USDC a una wallet B, y la comisión de red es pagada por una **cuenta sponsor** mediante fee-bump, no por el usuario final.
 
 ---
 
@@ -33,7 +33,8 @@ src/
 │       └── StellarSponsoredWalletProvider.ts # Sponsored Reserves (CAP-33/CAP-31)
 └── labstellar/             # Punto de entrada E2E (scripts de validación)
     ├── index.ts            # Demo con Sozu Faucet (pago USDC)
-    └── sponsored.ts        # Demo con Sponsored Reserves (pago XLM nativo)
+    ├── sponsored.ts        # Demo con Sponsored Reserves (pago XLM nativo)
+    └── sponsored-usdc.ts   # Demo con Sponsored Reserves + pago USDC
 ```
 
 **Regla de oro respetada:** El dominio y los casos de uso no importan nada de `@stellar/stellar-sdk` ni de `child_process`. Solo dependen de las interfaces (puertos).
@@ -92,6 +93,18 @@ npm run demo
 npm run sponsored
 ```
 
+### Demo 3: Pago USDC con Sponsored Reserves (sin Friendbot)
+
+```bash
+npm run sponsored:usdc
+```
+
+> **⚠️ Requisito previo:** Wallet A debe tener saldo de USDC antes de ejecutar el pago.
+> Usar Sozu Faucet para fundearla:
+> ```bash
+> npx @sozu/faucet claim <DIRECCION_DE_A>
+> ```
+
 ### Flujo del script `src/labstellar/index.ts`
 
 1. **Wallet A (usuario final)** — Se crea vía Sozu Faucet (`npx @sozu/faucet claim`). La wallet nace con USDC y 0 XLM para el usuario.
@@ -111,6 +124,20 @@ npm run sponsored
 4. **Pago XLM A → B** — Se construye y firma una transacción de pago XLM nativo con la secret de A.
 5. **Fee-Bump (sponsor paga)** — El XDR se envuelve en una fee-bump transaction y se envía a Horizon.
 6. **Salida** — Se imprime el hash de la transacción en consola.
+
+### Flujo del script `src/labstellar/sponsored-usdc.ts`
+
+1. **Wallet A (usuario final)** — Se crea vía Sponsored Reserves (CAP-33/CAP-31):
+   - `beginSponsoringFutureReserves` + `createAccount` (sponsor paga 1 XLM de reserve).
+   - `changeTrust(USDC)` + `endSponsoringFutureReserves` (sponsor paga 0.5 XLM de reserve).
+   Todo envuelto en fee-bump pagada por el sponsor.
+   - **A nace con 0 XLM gastables y 0 USDC balance.**
+2. **Sponsor envía 2 XLM a A** para comisiones disponibles.
+3. **Fondear A con USDC** — **Paso manual requerido:** usar Sozu Faucet (`npx @sozu/faucet claim <DIRECCION_DE_A>`) o recibir USDC de otra wallet.
+4. **Wallet B (destinatario)** — Se genera aleatoriamente, se fonda con Friendbot y se le añade la trustline de USDC.
+5. **Pago USDC A → B** — Se construye y firma una transacción de pago USDC con la secret de A.
+6. **Fee-Bump (sponsor paga)** — El XDR se envuelve en una fee-bump transaction y se envía a Horizon.
+7. **Salida** — Se imprime el hash de la transacción en consola.
 
 > **Nota importante sobre USDC con Sponsored Reserves:** Wallet A nace con la **trustline USDC activa** pero **sin balance de USDC**. Para hacer un pago en USDC de A → B, primero debe **fundearse A con USDC** (vía faucet o pago directo), ya que el patrón de sponsorship solo cubre el reserve de la cuenta y el reserve de la trustline, no el saldo del activo.
 
@@ -195,6 +222,7 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 |--------|-------------|
 | `npm run demo` | Ejecuta el flujo E2E con Sozu Faucet contra Testnet y muestra el hash |
 | `npm run sponsored` | Ejecuta el flujo Sponsored Reserves contra Testnet y muestra el hash |
+| `npm run sponsored:usdc` | Ejecuta el flujo Sponsored Reserves + pago USDC contra Testnet (requiere fondear A con USDC primero) |
 | `npm test` | Ejecuta tests unitarios (sin red) |
 | `npm run test:integration` | Ejecuta tests de integración contra Testnet (requiere `E2E=true`) |
 | `npm run lint` | Verifica tipos con `tsc --noEmit` |
@@ -208,6 +236,7 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 - [x] `npm test` pasa sin errores (tests unitarios, integración skippeada sin red)
 - [x] `npm run demo` finaliza con hash de transacción exitoso
 - [x] `npm run sponsored` finaliza con hash de transacción exitoso
+- [x] `npm run sponsored:usdc` compila y está listo para ejecutar (requiere fondear A con USDC)
 - [x] Las transacciones aparecen como exitosas en Stellar Expert Testnet
 - [x] La comisión fue pagada por la cuenta del sponsor, no por la wallet A (fee-bump)
 - [x] La wallet A tuvo 0 XLM para el usuario final (fondada solo con USDC o Sponsored Reserves)

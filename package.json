@@ -8,6 +8,7 @@
     "build": "tsc",
     "demo": "ts-node src/labstellar/index.ts",
     "sponsored": "ts-node src/labstellar/sponsored.ts",
+    "sponsored:usdc": "ts-node src/labstellar/sponsored-usdc.ts",
     "test": "vitest run",
     "test:integration": "vitest run --dir src/__tests__/integration",
     "lint": "tsc --noEmit"
