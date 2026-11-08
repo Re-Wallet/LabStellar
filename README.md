@@ -177,10 +177,10 @@ El flujo on-ramp/off-ramp está **completamente implementado y listo para ejecut
 
 **Una vez aprobada la URL, ejecutar:**
 ```bash
-export SPONSOR_SECRET_KEY="SBQJYQWOEOLFAY6ZL7QKKQADAGBJHII54ONOUVIYPRRMV54TAHAAGUGH"
-export POLAR_SECRET_KEY="sec_testnet_ae25e9a2e5d7c127b98ab469ba078ffea4edb8af513da4a7c6f1581adcd420df"
+export SPONSOR_SECRET_KEY="SA_TU_SECRET_KEY_DEL_SPONSOR"
+export POLAR_SECRET_KEY="sec_testnet_TU_CLAVE_DE_POLLAR"
 export POLAR_EXTERNAL_USER_ID="mi-usuario-prueba"
-export STELLAR_SECRET_KEY="SANGM6NH6N5TAEKTXEBA54RDF6XDFHMUM5FHHYJCWVXU57TN4XSEM7AF"
+export STELLAR_SECRET_KEY="SA_TU_SECRET_KEY_DE_USUARIO"
 
 npm run e2e:usdc-onramp-pollar
 ```
