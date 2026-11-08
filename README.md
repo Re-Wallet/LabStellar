@@ -182,31 +182,75 @@ Flujo:
 | **Ledger** | 5621811 |
 | **Fecha** | 2026-11-08T10:11:37Z |
 
+### Transacción 4: Fee-Bump con Sozu Faucet (pago USDC) — Manejo de errores de red verificado
+
+| Campo | Valor |
+|-------|-------|
+| **Hash** | `7c91e5cc544d36faeb34a13196b60eb6775575ca07ca89f204cac06fa38f53c0` |
+| **Estado** | ✅ `successful: true` |
+| **Fee pagada por** (fee_account) | `GBK6IQBLLQ6T7ZMHNVTZUVQ6ETISGVZUVWWAP5SJPPBUD66PM4RZFIRI` (sponsor) |
+| **Wallet emisora** (source_account) | `GA3E3OYH3VSU2DABKHCXA6R3275BESVC7AR3W7DX4XAC7MGFWWPFRXCH` (wallet A) |
+| **Comisión cobrada** | 200 stroops |
+| **Ledger** | 5622025 |
+| **Fecha** | 2026-11-08T10:29:27Z |
+
 ### Enlaces de verificación
 
 - **Transacción 1 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/8028aabbd79ad15d003b3555a26534019a36772d7bc7d21aa74f194680d8aa7b
 - **Transacción 2 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/48d42eecfc2797ecf209ae2ebe1300bb2233eb917436b4df1509aed0f4bb8055
 - **Transacción 3 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/db0ae64a00f266c433102c3d0d9d5d20874a0a5d15b59d45119d9c36417e2561
+- **Transacción 4 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/7c91e5cc544d36faeb34a13196b60eb6775575ca07ca89f204cac06fa38f53c0
 
 ### Evidencia en cadena (respuesta de Horizon)
 
-**Transacción 3 (Sponsored Reserves + USDC):**
+**Transacción 4 (Fee-Bump + Sozu Faucet, después de recuperación de red):**
 
 ```json
 {
   "successful": true,
-  "hash": "db0ae64a00f266c433102c3d0d9d5d20874a0a5d15b59d45119d9c36417e2561",
-  "source_account": "GA4QPRBYM2PQVECGLUXBGFQUZBQNHIJA4K4OIVKBXVVIETDQFQNDLYEI",
+  "hash": "7c91e5cc544d36faeb34a13196b60eb6775575ca07ca89f204cac06fa38f53c0",
+  "source_account": "GA3E3OYH3VSU2DABKHCXA6R3275BESVC7AR3W7DX4XAC7MGFWWPFRXCH",
   "fee_account": "GBK6IQBLLQ6T7ZMHNVTZUVQ6ETISGVZUVWWAP5SJPPBUD66PM4RZFIRI",
   "fee_charged": "200",
   "max_fee": "200",
   "fee_bump_transaction": true,
   "inner_transaction": {
-    "hash": "2548eb84924cb9d68410b076e076384ab43832b62df6d5e122206081e8f402f6",
+    "hash": "ee92ae1f9e99ec82ae583320a8ef92a3a4791f00a83943f2540401fea10becb8",
     "max_fee": "100"
   }
 }
 ```
+
+---
+
+## 🛡️ Manejo de Errores en SozuWalletProvider
+
+El adaptador `SozuWalletProvider` implementa reintentos con backoff exponencial para errores recuperables del faucet Sozu:
+
+### Errores recuperables (reintenta automáticamente)
+
+| Origen | Errores | Comportamiento |
+|--------|---------|----------------|
+| Red (Node.js) | `ECONNREFUSED`, `ECONNRESET`, `ENETUNREACH`, `ECONNABORTED`, `ETIMEDOUT`, `EAI_AGAIN` | Reintenta con backoff exponencial |
+| HTTP | `429 Too Many Requests` | Reintenta con backoff exponencial |
+| JSON del faucet | `user_cooldown`, `global_cooldown`, `rate_limited` | Reintenta esperando `nextAvailableAt` o delay por defecto |
+
+### Configuración (`SozuWalletProviderOptions`)
+
+| Opción | Por defecto | Descripción |
+|--------|-------------|-------------|
+| `maxRetries` | `3` | Número máximo de reintentos |
+| `baseDelayMs` | `5000` | Retraso base en ms para backoff exponencial |
+
+### Backoff exponencial
+
+- Intento 1: inmediatamente
+- Intento 2: 5 segundos
+- Intento 3: 10 segundos
+- Intento 4: 20 segundos
+- Tope máximo: 60 segundos
+
+Si después de agotar los reintentos el error persiste, se lanza el último error capturado.
 
 ---
 
@@ -248,14 +292,15 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 
 - [x] `tsc --noEmit` compila sin errores
 - [x] `npm test` pasa sin errores (tests unitarios, integración skippeada sin red)
-- [x] `npm run e2e:usdc-fee-bump-sozu` finaliza con hash de transacción exitoso
-- [x] `npm run e2e:xlm-fee-bump-sponsored-reserves` finaliza con hash de transacción exitoso
+- [x] `npm run e2e:usdc-fee-bump-sozu` finaliza con hash de transacción exitoso (verificado en Testnet)
+- [x] `npm run e2e:xlm-fee-bump-sponsored-reserves` finaliza con hash de transacción exitoso (verificado en Testnet)
 - [x] `npm run e2e:usdc-fee-bump-sponsored-reserves` compila y está listo para ejecutar (requiere fondear A con USDC)
 - [x] Las transacciones aparecen como exitosas en Stellar Expert Testnet
 - [x] La comisión fue pagada por la cuenta del sponsor, no por la wallet A (fee-bump)
 - [x] La wallet A tuvo 0 XLM para el usuario final (fondada solo con USDC o Sponsored Reserves)
 - [x] Arquitectura hexagonal: dominio y casos de uso sin dependencias de SDK ni child_process
 - [x] Secretos solo en memoria, ninguno hardcodeado
+- [x] Manejo de errores de red con reintentos y backoff exponencial en `SozuWalletProvider`
 
 ---
 
@@ -263,11 +308,10 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 
 Esta PoC valida el mecanismo principal de **fee-bump** y **sponsored reserves**. Para llevar a producción o extender:
 
-1. **Manejo de errores**: Añadir reintentos y manejo de cooldowns del faucet Sozu.
-2. **Persistencia**: Almacenar secretos de forma segura (vault, variables de entorno cifradas).
-3. **Más assets**: Soportar otros tokens además de USDC (Circle SAC).
-4. **Frontend**: Conectar esta lógica a una interfaz de usuario para el onboarding.
-5. **Sponsored reserves en producción**: Implementar patrocinio de trustlines y cuentas manualmente para Mainnet (donde no existe Friendbot).
+1. **Persistencia de secretos**: Almacenar secretos de forma segura (vault, variables de entorno cifradas) en lugar de solo en memoria.
+2. **Más assets**: Soportar otros tokens además de USDC (Circle SAC).
+3. **Frontend**: Conectar esta lógica a una interfaz de usuario para el onboarding.
+4. **Sponsored reserves en producción**: Implementar patrocinio de trustlines y cuentas manualmente para Mainnet (donde no existe Friendbot).
 
 ---
 
