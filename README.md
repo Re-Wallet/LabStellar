@@ -293,6 +293,18 @@ Flujo:
 | **Ledger** | 5622561 |
 | **Fecha** | 2026-11-08T11:14:07Z |
 
+### Transacción 6: Fee-Bump con Sozu Faucet (pago USDC) — Persistencia de secretos vía archivo cifrado verificada
+
+| Campo | Valor |
+|-------|-------|
+| **Hash** | `eae908dd8615c5a1ebe531a02da54d82a07711756247e91b943f568495773515` |
+| **Estado** | ✅ `successful: true` |
+| **Fee pagada por** (fee_account) | `GBK6IQBLLQ6T7ZMHNVTZUVQ6ETISGVZUVWWAP5SJPPBUD66PM4RZFIRI` (sponsor) |
+| **Wallet emisora** (source_account) | `GDVDKBQCHW273IDPEJGJSLASH47YHHLABDG6Y6PL2IQNPVXFWR2UYIML` (wallet A) |
+| **Comisión cobrada** | 200 stroops |
+| **Ledger** | 5622657 |
+| **Fecha** | 2026-11-08T11:22:07Z |
+
 ### Enlaces de verificación
 
 - **Transacción 1 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/8028aabbd79ad15d003b3555a26534019a36772d7bc7d21aa74f194680d8aa7b
@@ -300,22 +312,23 @@ Flujo:
 - **Transacción 3 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/db0ae64a00f266c433102c3d0d9d5d20874a0a5d15b59d45119d9c36417e2561
 - **Transacción 4 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/7c91e5cc544d36faeb34a13196b60eb6775575ca07ca89f204cac06fa38f53c0
 - **Transacción 5 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/1352a2f114f268ef1ceaa78e8c43b7b149121b67135fb7c38153b8f0a2092dc9
+- **Transacción 6 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/eae908dd8615c5a1ebe531a02da54d82a07711756247e91b943f568495773515
 
 ### Evidencia en cadena (respuesta de Horizon)
 
-**Transacción 5 (Fee-Bump + Sozu Faucet, con persistencia de secretos vía Environment):**
+**Transacción 6 (Fee-Bump + Sozu Faucet, con persistencia de secretos vía archivo cifrado AES-256-GCM):**
 
 ```json
 {
   "successful": true,
-  "hash": "1352a2f114f268ef1ceaa78e8c43b7b149121b67135fb7c38153b8f0a2092dc9",
-  "source_account": "GBSTNFJZ2C2ADVUMHAKFKPV5ICQN2SY4M4WE6ZNR4LQDBGIY6QDF6CYM",
+  "hash": "eae908dd8615c5a1ebe531a02da54d82a07711756247e91b943f568495773515",
+  "source_account": "GDVDKBQCHW273IDPEJGJSLASH47YHHLABDG6Y6PL2IQNPVXFWR2UYIML",
   "fee_account": "GBK6IQBLLQ6T7ZMHNVTZUVQ6ETISGVZUVWWAP5SJPPBUD66PM4RZFIRI",
   "fee_charged": "200",
   "max_fee": "200",
   "fee_bump_transaction": true,
   "inner_transaction": {
-    "hash": "0c49c1a425b47c93a58b3c3692e980a96c8a43e16599725350fa49e892e7ae25",
+    "hash": "c459f7f43cc0b06c63c27c001fd48287e0778f64be04bc8bae7daef61178eb68",
     "max_fee": "100"
   }
 }
