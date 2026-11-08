@@ -29,9 +29,11 @@ src/
 │   ├── sozu/
 │   │   └── SozuWalletProvider.ts   # Ejecuta `npx @sozu/faucet claim` y parsea JSON
 │   └── stellar/
-│       └── StellarPaymentSubmitter.ts # buildFeeBumpTransaction + submit a Horizon
-└── labstellar/             # Punto de entrada E2E (script de validación)
-    └── index.ts
+│       ├── StellarPaymentSubmitter.ts # buildFeeBumpTransaction + submit a Horizon
+│       └── StellarSponsoredWalletProvider.ts # Sponsored Reserves (CAP-33/CAP-31)
+└── labstellar/             # Punto de entrada E2E (scripts de validación)
+    ├── index.ts            # Demo con Sozu Faucet (pago USDC)
+    └── sponsored.ts        # Demo con Sponsored Reserves (pago XLM nativo)
 ```
 
 **Regla de oro respetada:** El dominio y los casos de uso no importan nada de `@stellar/stellar-sdk` ni de `child_process`. Solo dependen de las interfaces (puertos).
@@ -78,11 +80,19 @@ export SOZU_FAUCET_URL="https://faucet.sozu.capital"  # opcional
 
 ## ▶️ Ejecutar la Validación E2E
 
+### Demo 1: Pago USDC con Sozu Faucet
+
 ```bash
 npm run demo
 ```
 
-### Flujo del script (`src/labstellar/index.ts`)
+### Demo 2: Pago XLM con Sponsored Reserves (sin Friendbot)
+
+```bash
+npm run sponsored
+```
+
+### Flujo del script `src/labstellar/index.ts`
 
 1. **Wallet A (usuario final)** — Se crea vía Sozu Faucet (`npx @sozu/faucet claim`). La wallet nace con USDC y 0 XLM para el usuario.
 2. **Wallet B (destinatario)** — Se genera aleatoriamente, se fonda con Friendbot y se le añade la trustline de USDC.
@@ -90,11 +100,25 @@ npm run demo
 4. **Fee-Bump (sponsor paga)** — El XDR se envuelve en una fee-bump transaction con `buildFeeBumpTransaction`, se firma con el sponsor y se envía a Horizon.
 5. **Salida** — Se imprime el hash de la transacción en consola.
 
+### Flujo del script `src/labstellar/sponsored.ts`
+
+1. **Wallet A (usuario final)** — Se crea vía Sponsored Reserves (CAP-33/CAP-31):
+   - `beginSponsoringFutureReserves` + `createAccount` (sponsor paga 1 XLM de reserve).
+   - `changeTrust(USDC)` + `endSponsoringFutureReserves` (sponsor paga 0.5 XLM de reserve).
+   Todo envuelto en fee-bump pagada por el sponsor.
+2. **Sponsor envía 2 XLM a A** para comisiones disponibles (A nace con 0 XLM gastables).
+3. **Wallet B (destinatario)** — Se genera aleatoriamente, se fonda con Friendbot y se le añade la trustline de USDC.
+4. **Pago XLM A → B** — Se construye y firma una transacción de pago XLM nativo con la secret de A.
+5. **Fee-Bump (sponsor paga)** — El XDR se envuelve en una fee-bump transaction y se envía a Horizon.
+6. **Salida** — Se imprime el hash de la transacción en consola.
+
+> **Nota importante sobre USDC con Sponsored Reserves:** Wallet A nace con la **trustline USDC activa** pero **sin balance de USDC**. Para hacer un pago en USDC de A → B, primero debe **fundearse A con USDC** (vía faucet o pago directo), ya que el patrón de sponsorship solo cubre el reserve de la cuenta y el reserve de la trustline, no el saldo del activo.
+
 ---
 
 ## ✅ Transacciones Verificadas en Testnet (Red Real)
 
-### Transacción principal (fee-bump exitosa)
+### Transacción 1: Fee-Bump con Sozu Faucet (pago USDC)
 
 | Campo | Valor |
 |-------|-------|
@@ -106,31 +130,42 @@ npm run demo
 | **Ledger** | 5620394 |
 | **Fecha** | 2026-11-08T08:13:32Z |
 
+### Transacción 2: Sponsored Reserves (pago XLM nativo)
+
+| Campo | Valor |
+|-------|-------|
+| **Hash** | `48d42eecfc2797ecf209ae2ebe1300bb2233eb917436b4df1509aed0f4bb8055` |
+| **Estado** | ✅ `successful: true` |
+| **Fee pagada por** (fee_account) | `GBK6IQBLLQ6T7ZMHNVTZUVQ6ETISGVZUVWWAP5SJPPBUD66PM4RZFIRI` (sponsor) |
+| **Wallet emisora** (source_account) | `GBLHMN6HUKTLL72BY7BHL4UYIE2UBV5O3MBWGHFGYD2ICSAAU4ONPFSZ` (wallet A) |
+| **Comisión cobrada** | 200 stroops |
+| **Ledger** | 5621655 |
+| **Fecha** | 2026-11-08T09:58:37Z |
+
 ### Enlaces de verificación
 
-- **Transacción en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/8028aabbd79ad15d003b3555a26534019a36772d7bc7d21aa74f194680d8aa7b
-- **Wallet A (emisor, 0 XLM inicial):** https://stellar.expert/explorer/testnet/account/GAOYQYFSQDDVWAXZXD4UH7AVQ6G2T2CYHEJCOAI5KSZQU36IWLQL7NWF
-- **Sponsor (pagador de la fee):** https://stellar.expert/explorer/testnet/account/GAWMZWOPC3ESC6YRRGYPWHPKMKRHIFRXBI27NQS6YKTF2JKZHRGUJXJI
+- **Transacción 1 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/8028aabbd79ad15d003b3555a26534019a36772d7bc7d21aa74f194680d8aa7b
+- **Transacción 2 en Stellar Expert:** https://stellar.expert/explorer/testnet/tx/48d42eecfc2797ecf209ae2ebe1300bb2233eb917436b4df1509aed0f4bb8055
 
 ### Evidencia en cadena (respuesta de Horizon)
+
+**Transacción 2 (Sponsored Reserves):**
 
 ```json
 {
   "successful": true,
-  "hash": "8028aabbd79ad15d003b3555a26534019a36772d7bc7d21aa74f194680d8aa7b",
-  "source_account": "GAOYQYFSQDDVWAXZXD4UH7AVQ6G2T2CYHEJCOAI5KSZQU36IWLQL7NWF",
-  "fee_account": "GAWMZWOPC3ESC6YRRGYPWHPKMKRHIFRXBI27NQS6YKTF2JKZHRGUJXJI",
+  "hash": "48d42eecfc2797ecf209ae2ebe1300bb2233eb917436b4df1509aed0f4bb8055",
+  "source_account": "GBLHMN6HUKTLL72BY7BHL4UYIE2UBV5O3MBWGHFGYD2ICSAAU4ONPFSZ",
+  "fee_account": "GBK6IQBLLQ6T7ZMHNVTZUVQ6ETISGVZUVWWAP5SJPPBUD66PM4RZFIRI",
   "fee_charged": "200",
   "max_fee": "200",
   "fee_bump_transaction": true,
   "inner_transaction": {
-    "hash": "5be37fb10e754380d23c234300f589d8c1d7c547e6f617de4ef4cd40d3344f8e",
+    "hash": "41566742f7a1e09f2668c9bd8c1cb9c423b174ef2a8028fc1c0a7a73746c548d",
     "max_fee": "100"
   }
 }
 ```
-
-La wallet A (emisor) terminó con **99.0000000 USDC** y **9999.9999900 XLM** (estos últimos del fondo inicial de Friendbot, no usados para la comisión de red).
 
 ---
 
@@ -158,7 +193,8 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 
 | Script | Descripción |
 |--------|-------------|
-| `npm run demo` | Ejecuta el flujo E2E completo contra Testnet y muestra el hash |
+| `npm run demo` | Ejecuta el flujo E2E con Sozu Faucet contra Testnet y muestra el hash |
+| `npm run sponsored` | Ejecuta el flujo Sponsored Reserves contra Testnet y muestra el hash |
 | `npm test` | Ejecuta tests unitarios (sin red) |
 | `npm run test:integration` | Ejecuta tests de integración contra Testnet (requiere `E2E=true`) |
 | `npm run lint` | Verifica tipos con `tsc --noEmit` |
@@ -169,11 +205,12 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 ## 📌 Criterios de Aceptación Cumplidos
 
 - [x] `tsc --noEmit` compila sin errores
-- [x] `npm test` pasa sin errores (6 tests unitarios, 1 integración skippeado sin red)
+- [x] `npm test` pasa sin errores (tests unitarios, integración skippeada sin red)
 - [x] `npm run demo` finaliza con hash de transacción exitoso
-- [x] La transacción aparece como exitosa en Stellar Expert Testnet
-- [x] La comisión fue pagada por la cuenta del sponsor, no por la wallet A
-- [x] La wallet A tuvo 0 XLM para el usuario final (fondada solo con USDC)
+- [x] `npm run sponsored` finaliza con hash de transacción exitoso
+- [x] Las transacciones aparecen como exitosas en Stellar Expert Testnet
+- [x] La comisión fue pagada por la cuenta del sponsor, no por la wallet A (fee-bump)
+- [x] La wallet A tuvo 0 XLM para el usuario final (fondada solo con USDC o Sponsored Reserves)
 - [x] Arquitectura hexagonal: dominio y casos de uso sin dependencias de SDK ni child_process
 - [x] Secretos solo en memoria, ninguno hardcodeado
 
@@ -181,13 +218,13 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 
 ## 🚀 Próximos Pasos (Desarrollo Progresivo)
 
-Esta PoC valida el mecanismo principal de **fee-bump**. Para llevar a producción o extender:
+Esta PoC valida el mecanismo principal de **fee-bump** y **sponsored reserves**. Para llevar a producción o extender:
 
-1. **Sponsored reserves**: Implementar patrocinio de trustlines y cuentas manualmente si se necesita crear wallets sin Friendbot.
-2. **Manejo de errores**: Añadir reintentos y manejo de cooldowns del faucet Sozu.
-3. **Persistencia**: Almacenar secretos de forma segura (vault, variables de entorno cifradas).
-4. **Más assets**: Soportar otros tokens además de USDC (Circle SAC).
-5. **Frontend**: Conectar esta lógica a una interfaz de usuario para el onboarding.
+1. **Manejo de errores**: Añadir reintentos y manejo de cooldowns del faucet Sozu.
+2. **Persistencia**: Almacenar secretos de forma segura (vault, variables de entorno cifradas).
+3. **Más assets**: Soportar otros tokens además de USDC (Circle SAC).
+4. **Frontend**: Conectar esta lógica a una interfaz de usuario para el onboarding.
+5. **Sponsored reserves en producción**: Implementar patrocinio de trustlines y cuentas manualmente para Mainnet (donde no existe Friendbot).
 
 ---
 
