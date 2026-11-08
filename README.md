@@ -1,4 +1,5 @@
-# ReWallet Stellar PoC — Pago Patrocinado (Fee-Bump) en Testnet
+# ReWallet Stellar PoC 
+# Pago Patrocinado (Fee-Bump) en Testnet
 
 Prueba de concepto de onboarding y transferencia de USDC sin que el usuario final necesite XLM, utilizando arquitectura hexagonal, `@stellar/stellar-sdk` y `@sozu/faucet`. El mecanismo de gas sponsorship se implementa con `TransactionBuilder.buildFeeBumpTransaction`, donde un tercero (sponsor) paga la comisión de red.
 
