@@ -1,15 +1,15 @@
 /**
- * Script de validación E2E: `npm run e2e:usdc-fee-bump-sozu`.
+ * Script de validación E2E: `npm run e2e:usdc-sozu-fee-bump`.
  *
  * Flujo:
- * 1. Crea wallet A (vía Sozu Faucet) — fondada con USDC.
+ * 1. Crea wallet A vía Sozu Faucet.
  * 2. Crea wallet B (destinatario), la fondea con Friendbot y le añade la trustline USDC.
  * 3. Construye y firma una transacción de pago USDC de A → B con el secret de A.
  * 4. Pasa el XDR firmado al StellarPaymentSubmitter (fee-bump pagado por el sponsor).
  * 5. Imprime el hash de la transacción en consola.
  *
  * Variables de entorno requeridas:
- *   SPONSOR_SECRET_KEY  — secret key de la cuenta sponsor (paga la comisión).
+ *   SPONSOR_SECRET_KEY  — secret key de la cuenta sponsor (paga la comisión de red).
  *   SOZU_FAUCET_URL     — (opcional) origen del faucet Sozu.
  *
  * Nota: los secretos solo se manejan en memoria, nunca se hardcodean.
@@ -87,7 +87,7 @@ async function waitForAccount(
 async function main() {
   const sponsorSecretProvider = new EnvSecretProvider('SPONSOR_SECRET_KEY');
 
-  // 1. Wallet A (usuario final) vía Sozu.
+  // 1. Wallet A (usuario final) vía Sozu Faucet.
   const walletProvider = new SozuWalletProvider();
   const createWalletUseCase = new CreateFundedWallet(walletProvider);
 
@@ -105,13 +105,10 @@ async function main() {
 
   const server = new Horizon.Server(HORIZON_URL);
   await fetch(
-    `https://friendbot.stellar.org?addr=${encodeURIComponent(
-      walletB.publicKey(),
-    )}`,
+    `https://friendbot.stellar.org?addr=${encodeURIComponent(walletB.publicKey())}`,
   );
   const bAccount = await waitForAccount(server, walletB.publicKey());
 
-  // B necesita la trustline de USDC para recibir el pago.
   const trustlineTx = new TransactionBuilder(bAccount, {
     fee: '100',
     networkPassphrase: Networks.TESTNET,
@@ -135,10 +132,8 @@ async function main() {
 
   // 4. Enviar con fee-bump (sponsor paga la comisión de red).
   console.log('🔹 Enviando pago patrocinado (fee-bump)…');
-  const submitter = new StellarPaymentSubmitter(
-    sponsorSecretProvider,
-    HORIZON_URL,
-  );
+  const sponsorSecret = await sponsorSecretProvider.getSponsorSecret();
+  const submitter = new StellarPaymentSubmitter(sponsorSecret);
   const sendPayment = new SendSponsoredPayment(submitter);
   const hash = await sendPayment.execute(txXdr);
 

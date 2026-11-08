@@ -1,27 +1,26 @@
 /**
- * Script de validación rápida: Sponsored Reserves.
- * `npm run e2e:xlm-fee-bump-sponsored-reserves`
+ * Script de validación E2E: `npm run e2e:xlm-sponsored-reserves-fee-bump`.
  *
- * Crea wallet A sin Friendbot ni Sozu: el sponsor paga el reserve de la cuenta
- * y el reserve de la trustline USDC. Luego envía 1 XLM de A → B con fee-bump
- * (el sponsor también paga la comisión de red).
+ * Flujo:
+ * 1. Crea wallet A vía Sponsored Reserves (sin Friendbot, sin Sozu).
+ * 2. Crea wallet B (destinatario), la fondea con Friendbot y le añade la trustline USDC.
+ * 3. Construye y firma una transacción de pago USDC de A → B con el secret de A.
+ * 4. Paga el XDR firmado al StellarPaymentSubmitter (fee-bump pagado por el sponsor).
+ * 5. Imprime el hash de la transacción en consola.
  *
  * Variables de entorno requeridas:
- *   SPONSOR_SECRET_KEY — cuenta sponsor con XLM en Testnet.
+ *   SPONSOR_SECRET_KEY  — secret key de la cuenta sponsor (paga la comisión de red fee-bump).
+ *   SOZU_FAUCET_URL     — (opcional) origen del faucet Sozu.
+ *
+ * Nota: los secretos solo se manejan en memoria, nunca se hardcodean.
  */
-import {
-  Keypair,
-  Networks,
-  Asset,
-  TransactionBuilder,
-  Horizon,
-  Operation,
-} from '@stellar/stellar-sdk';
-import { StellarSponsoredWalletProvider } from '../infrastructure/stellar/StellarSponsoredWalletProvider';
+import { Keypair, Networks, Asset, TransactionBuilder, Horizon, Operation } from '@stellar/stellar-sdk';
+import { SozuWalletProvider } from '../infrastructure/sozu/SozuWalletProvider';
 import { StellarPaymentSubmitter } from '../infrastructure/stellar/StellarPaymentSubmitter';
 import { CreateFundedWallet } from '../application/use-cases/CreateFundedWallet';
 import { SendSponsoredPayment } from '../application/use-cases/SendSponsoredPayment';
 import { EnvSecretProvider } from '../infrastructure/secret/EnvSecretProvider';
+import { StellarSponsoredWalletProvider } from '../infrastructure/stellar/StellarSponsoredWalletProvider';
 
 const HORIZON_URL = 'https://horizon-testnet.stellar.org';
 const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
@@ -29,133 +28,62 @@ const USDC = new Asset('USDC', USDC_ISSUER);
 
 function requireEnv(name: string): string {
   const value = process.env[name];
-  if (!value) {
-    throw new Error(`Falta la variable de entorno ${name}`);
-  }
+  if (!value) throw new Error(`Falta la variable de entorno ${name}`);
   return value;
 }
 
-async function buildAndSignPayment(
-  fromSecret: string,
-  fromAddress: string,
-  toAddress: string,
-  amount: string,
-): Promise<string> {
+async function buildAndSignPayment(fromSecret: string, fromAddress: string, toAddress: string, amount: string): Promise<string> {
   const server = new Horizon.Server(HORIZON_URL);
   const sourceKeypair = Keypair.fromSecret(fromSecret);
   const sourceAccount = await server.loadAccount(fromAddress);
 
-  const transaction = new TransactionBuilder(sourceAccount, {
-    fee: '100',
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      Operation.payment({
-        destination: toAddress,
-        asset: Asset.native(),
-        amount,
-      }),
-    )
-    .setTimeout(300)
-    .build();
+  const transaction = new TransactionBuilder(sourceAccount, { fee: '100', networkPassphrase: Networks.TESTNET })
+    .addOperation(Operation.payment({ destination: toAddress, asset: USDC, amount }))
+    .setTimeout(300).build();
 
   transaction.sign(sourceKeypair);
   return transaction.toXDR();
 }
 
-async function waitForAccount(
-  server: Horizon.Server,
-  address: string,
-): Promise<Horizon.AccountResponse> {
+async function waitForAccount(server: Horizon.Server, address: string): Promise<Horizon.AccountResponse> {
   let account: Horizon.AccountResponse | undefined;
   for (let i = 0; i < 30; i++) {
-    try {
-      account = await server.loadAccount(address);
-      return account;
-    } catch {
-      await new Promise((r) => setTimeout(r, 500));
-    }
+    try { account = await server.loadAccount(address); return account; } catch { await new Promise((r) => setTimeout(r, 500)); }
   }
   throw new Error(`La cuenta ${address} no apareció en Horizon`);
 }
 
 async function main() {
   const sponsorSecretProvider = new EnvSecretProvider('SPONSOR_SECRET_KEY');
+  const sponsorSecret = await sponsorSecretProvider.getSponsorSecret();
 
-  // 1. Wallet A vía Sponsored Reserves (sin Friendbot, sin Sozu).
-  const sponsoredProvider = new StellarSponsoredWalletProvider(
-    sponsorSecretProvider,
-    HORIZON_URL,
-  );
+  const sponsoredProvider = new StellarSponsoredWalletProvider(sponsorSecretProvider, HORIZON_URL);
   const createWalletUseCase = new CreateFundedWallet(sponsoredProvider);
 
   console.log('🔹 Creando wallet A vía Sponsored Reserves…');
   const walletA = await createWalletUseCase.execute();
   console.log(`   Dirección A: ${walletA.address}`);
-  if (!walletA.secret) {
-    throw new Error('Wallet A no devolvió secret');
-  }
+  if (!walletA.secret) throw new Error('Wallet A no devolvió secret');
 
-  // Wallet A tiene 0 XLM disponibles (mínimo balance bloqueado). El sponsor le
-  // envía un poco de XLM para que pueda pagar comisiones de transacciones internas.
-  console.log('🔹 Sponsor fondea a A con 2 XLM para comisiones…');
-  const server = new Horizon.Server(HORIZON_URL);
-  const sponsorSecret = await sponsorSecretProvider.getSponsorSecret();
-  const sponsorKeypair = Keypair.fromSecret(sponsorSecret);
-  const sponsorAccount = await server.loadAccount(sponsorKeypair.publicKey());
-  const fundTx = new TransactionBuilder(sponsorAccount, {
-    fee: '100',
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(
-      Operation.payment({
-        destination: walletA.address,
-        asset: Asset.native(),
-        amount: '2',
-      }),
-    )
-    .setTimeout(300)
-    .build();
-  fundTx.sign(sponsorKeypair);
-  await server.submitTransaction(fundTx);
-  console.log('   ✅ Wallet A tiene 2 XLM disponibles para comisiones.');
-
-  // 2. Wallet B (destinatario): Friendbot + trustline USDC.
   console.log('🔹 Creando y fondando wallet B (destinatario)…');
   const walletB = Keypair.random();
   console.log(`   Dirección B: ${walletB.publicKey()}`);
 
-  await fetch(
-    `https://friendbot.stellar.org?addr=${encodeURIComponent(
-      walletB.publicKey(),
-    )}`,
-  );
+  const server = new Horizon.Server(HORIZON_URL);
+  await fetch(`https://friendbot.stellar.org?addr=${encodeURIComponent(walletB.publicKey())}`);
   const bAccount = await waitForAccount(server, walletB.publicKey());
 
-  const trustlineTx = new TransactionBuilder(bAccount, {
-    fee: '100',
-    networkPassphrase: Networks.TESTNET,
-  })
-    .addOperation(Operation.changeTrust({ asset: USDC }))
-    .setTimeout(60)
-    .build();
+  const trustlineTx = new TransactionBuilder(bAccount, { fee: '100', networkPassphrase: Networks.TESTNET }).addOperation(Operation.changeTrust({ asset: USDC })).setTimeout(60).build();
   trustlineTx.sign(walletB);
   await server.submitTransaction(trustlineTx);
   console.log('   Trustline USDC añadida a B.');
 
-  // 3. Pago XLM de A → B firmado por A (USDC no tiene balance en A, usamos XLM nativo).
-  console.log('🔹 Construyendo y firmando pago XLM de A → B…');
-  const txXdr = await buildAndSignPayment(
-    walletA.secret,
-    walletA.address,
-    walletB.publicKey(),
-    '1', // 1 XLM
-  );
+  console.log('🔹 Construyendo y firmando pago USDC de A → B…');
+  const txXdr = await buildAndSignPayment(walletA.secret, walletA.address, walletB.publicKey(), '1');
   console.log(`   XDR firmado por A (${txXdr.length} bytes).`);
 
-  // 4. Fee-bump: el sponsor paga la comisión de red.
   console.log('🔹 Enviando pago patrocinado (fee-bump)…');
-  const submitter = new StellarPaymentSubmitter(sponsorSecretProvider, HORIZON_URL);
+  const submitter = new StellarPaymentSubmitter(sponsorSecret);
   const sendPayment = new SendSponsoredPayment(submitter);
   const hash = await sendPayment.execute(txXdr);
 
@@ -165,7 +93,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  const detail: any = err.response?.data ?? err.response?.extras ?? err.message;
-  console.error('❌ Sponsored falló con detalle:', JSON.stringify(detail, null, 2));
+  console.error('❌ Demo falló:', err instanceof Error ? err.message : err);
   process.exit(1);
 });

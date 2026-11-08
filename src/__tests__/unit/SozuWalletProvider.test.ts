@@ -35,7 +35,7 @@ describe('SozuWalletProvider (adaptador)', () => {
       .mockResolvedValueOnce(cooldownJson)
       .mockResolvedValueOnce(successJson);
 
-    const provider = new SozuWalletProvider(run, { maxRetries: 3, baseDelayMs: 10 });
+    const provider = new SozuWalletProvider(run);
 
     const wallet = await provider.createWallet();
 
@@ -49,7 +49,7 @@ describe('SozuWalletProvider (adaptador)', () => {
       .mockRejectedValueOnce(networkError)
       .mockResolvedValueOnce(successJson);
 
-    const provider = new SozuWalletProvider(run, { maxRetries: 3, baseDelayMs: 10 });
+    const provider = new SozuWalletProvider(run);
 
     const wallet = await provider.createWallet();
 
@@ -60,16 +60,16 @@ describe('SozuWalletProvider (adaptador)', () => {
   it('agota los reintentos y lanza el último error si persiste', async () => {
     const run = vi.fn().mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:3010'));
 
-    const provider = new SozuWalletProvider(run, { maxRetries: 2, baseDelayMs: 10 });
+    const provider = new SozuWalletProvider(run);
 
     await expect(provider.createWallet()).rejects.toThrow('ECONNREFUSED');
-    expect(run).toHaveBeenCalledTimes(3); // 1 inicial + 2 reintentos
+    expect(run).toHaveBeenCalledTimes(3);
   });
 
   it('no reintenta si el error no es recuperable (error de parseo)', async () => {
     const run = vi.fn().mockResolvedValue('no es json valido');
 
-    const provider = new SozuWalletProvider(run, { maxRetries: 3, baseDelayMs: 10 });
+    const provider = new SozuWalletProvider(run);
 
     await expect(provider.createWallet()).rejects.toThrow(
       'No se encontró JSON en la salida de sozu-faucet',

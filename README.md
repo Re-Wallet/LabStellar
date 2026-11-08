@@ -84,6 +84,133 @@ src/
 
 ---
 
+## 🔄 Pollar On-Ramp / Off-Ramp (fiat ↔ USDC)
+
+Se ha integrado Pollar Server API v3 para permitir la conversión entre moneda fiat y cripto (USDC) en Stellar Testnet. La arquitectura sigue siendo **NO-CUSTODIAL**: el usuario usa su propia wallet Stellar y firma las transacciones con su clave privada.
+
+### Flujo On-Ramp (fiat → USDC)
+
+```
+1. Vincular wallet externa a Pollar (PUT /v3/ramps/customers/wallets/STELLAR)
+2. Consultar rutas disponibles (GET /v3/ramps/routes?direction=ONRAMP)
+3. Agregar trustlines de los activos de las rutas a la wallet del usuario
+4. Cotizar on-ramp (POST /v3/ramps/quotes)
+5. Crear orden de rampa (POST /v3/ramps/orders)
+6. Firmar pierna de rampa (POST /v3/ramps/orders/{id}/legs/{index}/signature)
+7. Poll del estado hasta resolución (GET /v3/ramps/orders/{id})
+```
+
+### Flujo Off-Ramp (USDC → fiat)
+
+El flujo off-ramp es el espejo del on-ramp en dirección opuesta. Requiere que la wallet del usuario tenga saldo de USDC antes de ejecutar.
+
+### Scripts E2E
+
+| Script | Descripción |
+|--------|-------------|
+| `npm run e2e:usdc-onramp-pollar` | On-ramp fiat → USDC vía Pollar (COP/ARS/PEN → USDC en Stellar Testnet) |
+| `npm run e2e:usdc-offramp-pollar` | Off-ramp USDC → fiat vía Pollar (USDC en Stellar → COP/ARS/PEN) |
+
+### Requisitos previos
+
+1. Una wallet Stellar existente con su `STELLAR_SECRET_KEY`
+2. La wallet debe tener XLM para comisiones (fondar con Friendbot: `https://friendbot.stellar.org?addr=DIRECCION`)
+3. Para off-ramp, la wallet debe tener saldo de USDC
+
+### Ejecución
+
+```bash
+export SPONSOR_SECRET_KEY="SA_..."
+export POLAR_SECRET_KEY="sec_testnet_..."
+export POLAR_EXTERNAL_USER_ID="mi-usuario-123"
+export STELLAR_SECRET_KEY="SA_..."
+
+# On-ramp: 5000 COP → ~4550 USDC (comisión 450 COP)
+npm run e2e:usdc-onramp-pollar
+
+# Off-ramp: USDC → fiat (requiere USDC en la wallet)
+npm run e2e:usdc-offramp-pollar
+```
+
+### Estados de la orden
+
+| Estado | Descripción |
+|--------|-------------|
+| `created` | Orden creada, pendiente de acción |
+| `awaiting_payment` | Esperando pago fiat del usuario |
+| `processing` | En proceso de liquidación |
+| `settling_onchain` | Liquidando en cadena Stellar |
+| `completed` | Completado exitosamente |
+| `failed` | Falló |
+| `refunded` | Reembolsado |
+
+### Acciones pendientes (`pendingAction`)
+
+| Tipo | Qué hacer |
+|------|-----------|
+| `SIGNATURE` | Firmar transacción Stellar con la clave del usuario |
+| `FIAT_PAYMENT` | Usuario debe realizar el pago fiat (pago local) |
+| `KYC` | Usuario debe completar verificación de identidad |
+| `COSIGN_APPROVAL` | Aprobación de co-firma (wallets co-custody) |
+| `NONE` | Sin acción pendiente |
+
+### Limitaciones actuales (Testnet)
+
+- Las rutas disponibles en Pollar testnet son: COP/COP (Colombia), ARS/ARS (Argentina), PEN/PEN (Perú) vía HOSTED
+- Monto mínimo para on-ramp COP: 4000 COP, máximo: 40000 COP
+- El KYC es requerido por Pollar para completar la orden; debe hacerse manualmente por el usuario
+- El SDK `@pollar/core` requiere entorno de navegador (no funciona en Node.js directamente)
+- **KYC con Didit:** Para activar el KYC, debes configurar tu cuenta de Didit en el **dashboard de Pollar** (Developers > Identity checks > Verification steps). Pollar requiere que la URL de devolución esté registrada/permitida antes de crear la opción de Didit. Si recibes error "No se pudo crear su opción de Didit", verifica que la URL de devolución esté en la lista de URLs permitidas de tu aplicación en Pollar.
+
+### 🚩 Estado actual: Esperando aprobación de URL en Pollar
+
+El flujo on-ramp/off-ramp está **completamente implementado y listo para ejecutar**, pero está bloqueado a la espera de que el soporte de Pollar apruebe la URL de devolución para el webhook de Didit.
+
+**Estado:**
+- ✅ Código implementado y compilando (`tsc --noEmit` limpio)
+- ✅ `PollarRampProvider` con `startKyc`, `getKycStatus`, `signRampLeg`, `quoteRamp`, `createRampOrder`, `getOrderStatus`, `linkWallet`, `getRampRoutes`
+- ✅ Scripts E2E listos (`e2e-usdc-onramp-pollar`, `e2e-usdc-offramp-pollar`)
+- ✅ Servidor webhook local corriendo en `http://0.0.0.0:3000`
+- ✅ Tunnel de Cloudflare activo: `https://charger-polar-atom-tourist.trycloudflare.com`
+- ⏳ **Pendiente:** Soporte de Pollar apruebe la URL `https://charger-polar-atom-tourist.trycloudflare.com` como URL de devolución permitida
+- ⏳ **Pendiente:** Crear opción de Didit en Pollar Dashboard una vez aprobada la URL
+
+**Una vez aprobada la URL, ejecutar:**
+```bash
+export SPONSOR_SECRET_KEY="SBQJYQWOEOLFAY6ZL7QKKQADAGBJHII54ONOUVIYPRRMV54TAHAAGUGH"
+export POLAR_SECRET_KEY="sec_testnet_ae25e9a2e5d7c127b98ab469ba078ffea4edb8af513da4a7c6f1581adcd420df"
+export POLAR_EXTERNAL_USER_ID="mi-usuario-prueba"
+export STELLAR_SECRET_KEY="SANGM6NH6N5TAEKTXEBA54RDF6XDFHMUM5FHHYJCWVXU57TN4XSEM7AF"
+
+npm run e2e:usdc-onramp-pollar
+```
+
+---
+
+### Presentación del KYC: redirect vs iframe
+
+| Contexto | Opción recomendada | Razón |
+|----------|-------------------|-------|
+| **Lab/pruebas (scripts E2E)** | `redirect` | Simple: el usuario visita una URL en su navegador, completa el KYC y Didit redirige de vuelta a tu webhook |
+| **Billetera/app de producción** | `iframe` | El KYC se muestra embebido dentro de tu aplicación; el usuario nunca sale de tu app |
+
+**Nota:** Para este laboratorio se usa `redirect`. Si vas a integrar Pollar en una billetera de producción, cambia a `iframe` para mantener la experiencia de usuario dentro de tu aplicación.
+
+### Configuración del webhook de Didit (opcional)
+
+El webhook de Didit es opcional. Tu script E2E ya hace **polling** cada 5 segundos consultando `GET /v3/ramps/kyc/status?corridorId=...`, así que funciona con o sin webhook.
+
+Si quieres usar webhook para notificación en tiempo real:
+
+1. Configura un servidor que reciba POST de Didit (tu servidor local en `http://0.0.0.0:3000` expuesto vía localtunnel o ngrok)
+2. En Didit Dashboard, configura el webhook con:
+   - URL de endpoint: `https://tu-url-publica.com/webhook/didit`
+   - Medio ambiente: `Sandbox`
+   - Eventos: `Verificaciones → status.updated`, `Verificaciones → data.updated`
+3. En Pollar Dashboard, agrega el mismo webhook secret en la configuración de Didit
+
+---
+
 ## 🛠 Stack Tecnológico
 
 | Capa | Tecnología | Versión |
@@ -91,6 +218,8 @@ src/
 | Lenguaje | TypeScript (Node.js) | — |
 | SDK Stellar | `@stellar/stellar-sdk` | ^14.6.1 |
 | Fondeo de wallets | `@sozu/faucet` (CLI) | ^0.2.0 |
+| On/Off-Ramp | Pollar Server API v3 | `https://server.api.pollar.xyz/v3` |
+| SDK Pollar (cliente/navegador) | `@pollar/core` | ^0.12.0 |
 | Red | Stellar Testnet | Horizon: `https://horizon-testnet.stellar.org` |
 | Pruebas | Vitest | ^1.6.0 |
 | Ejecución TS | ts-node | ^10.9.2 |
@@ -113,10 +242,18 @@ Crear un archivo `.env` o exportar en la terminal antes de ejecutar:
 ```bash
 export SPONSOR_SECRET_KEY="SA_TU_SECRET_KEY_DEL_SPONSOR"
 export SOZU_FAUCET_URL="https://faucet.sozu.capital"  # opcional
+export POLAR_SECRET_KEY="sec_testnet_TU_CLAVE_DE_POLLAR"
+export POLAR_PUBLIC_KEY="pub_testnet_TU_CLAVE_PUBLICA_DE_POLLAR"
+export POLAR_EXTERNAL_USER_ID="tu-usuario-unico"  # opcional, por defecto 'rewallet-lab-stellar'
+export STELLAR_SECRET_KEY="SA_TU_SECRET_KEY_DE_USUARIO"  # requerido para on-ramp/off-ramp
 ```
 
 - **`SPONSOR_SECRET_KEY`**: Clave secreta de una cuenta Stellar Testnet con XLM. Esta cuenta paga las comisiones de red (fee-bump). Nunca hardcodear en el repositorio.
 - **`SOZU_FAUCET_URL`**: Origen del faucet Sozu (por defecto `https://faucet.sozu.capital`).
+- **`POLAR_SECRET_KEY`**: Clave secreta de Pollar Server API (sec_testnet_* / sec_mainnet_*). Se usa para autenticar llamadas a la API de Pollar con el header `x-pollar-api-key`.
+- **`POLAR_PUBLIC_KEY`**: Clave pública de Pollar (pub_testnet_*). Se usa con el SDK `@pollar/core` en entornos de navegador.
+- **`POLAR_EXTERNAL_USER_ID`**: ID de usuario externo para Pollar (cualquier string único, 1-128 caracteres). Se usa para asociar órdenes de rampa a un usuario específico.
+- **`STELLAR_SECRET_KEY`**: Clave secreta de la wallet Stellar del usuario. Requerido para on-ramp/off-ramp con Pollar. La wallet debe existir en Horizon y tener los trustlines necesarios.
 
 > ⚠️ Los secretos solo se manejan en memoria. Nunca se escriben en disco ni se versionan.
 
@@ -394,6 +531,9 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 | `npm run e2e:usdc-fee-bump-sozu` | Ejecuta el flujo E2E con Sozu Faucet + fee-bump (pago USDC) contra Testnet y muestra el hash |
 | `npm run e2e:xlm-fee-bump-sponsored-reserves` | Ejecuta el flujo Sponsored Reserves + fee-bump (pago XLM nativo) contra Testnet y muestra el hash |
 | `npm run e2e:usdc-fee-bump-sponsored-reserves` | Ejecuta el flujo Sponsored Reserves + fee-bump (pago USDC) contra Testnet (requiere fondear A con USDC primero) |
+| `npm run e2e:usdc-onramp-pollar` | Ejecuta el flujo on-ramp fiat → USDC vía Pollar Server API v3 (firma + polling) |
+| `npm run e2e:usdc-offramp-pollar` | Ejecuta el flujo off-ramp USDC → fiat vía Pollar Server API v3 (firma + polling) |
+| `npm run e2e:usdc-onramp-pollar-sdk` | Script de prueba con SDK @pollar/core (requiere navegador, no funciona en Node.js) |
 | `npm test` | Ejecuta tests unitarios (sin red) |
 | `npm run test:integration` | Ejecuta tests de integración contra Testnet (requiere `E2E=true`) |
 | `npm run lint` | Verifica tipos con `tsc --noEmit` |
@@ -408,25 +548,31 @@ Estos tests se saltan automáticamente si no se definen las variables de entorno
 - [x] `npm run e2e:usdc-fee-bump-sozu` finaliza con hash de transacción exitoso (verificado en Testnet)
 - [x] `npm run e2e:xlm-fee-bump-sponsored-reserves` finaliza con hash de transacción exitoso (verificado en Testnet)
 - [x] `npm run e2e:usdc-fee-bump-sponsored-reserves` compila y está listo para ejecutar (requiere fondear A con USDC)
-- [x] Las transacciones aparecen como exitosas en Stellar Expert Testnet
+- [x] `npm run e2e:usdc-onramp-pollar` compila y ejecuta flujo on-ramp completo (vinculación, trustlines, quote, orden, firma Stellar)
+- [x] `npm run e2e:usdc-offramp-pollar` compila y ejecuta flujo off-ramp completo (requiere USDC en wallet)
+- [x] Las transacciones fee-bump aparecen como exitosas en Stellar Expert Testnet
 - [x] La comisión fue pagada por la cuenta del sponsor, no por la wallet A (fee-bump)
 - [x] La wallet A tuvo 0 XLM para el usuario final (fondada solo con USDC o Sponsored Reserves)
 - [x] Arquitectura hexagonal: dominio y casos de uso sin dependencias de SDK ni child_process
 - [x] Secretos solo en memoria, ninguno hardcodeado
 - [x] Manejo de errores de red con reintentos y backoff exponencial en `SozuWalletProvider`
 - [x] Persistencia de secretos mediante puerto `SecretProvider` (variable de entorno y archivo cifrado)
+- [x] Integración con Pollar Server API v3: autenticación `x-pollar-api-key`, `linkWallet`, `getRampRoutes`, `quoteRamp`, `createRampOrder`, `signRampLeg`, `getOrderStatus`
+- [x] Arquitectura NO-CUSTODIAL respetada: el usuario firma con su propia clave Stellar
 
 ---
 
 ## 🚀 Próximos Pasos (Desarrollo Progresivo)
 
-Esta PoC valida el mecanismo principal de **fee-bump** y **sponsored reserves**. Para llevar a producción o extender:
+Esta PoC valida el mecanismo principal de **fee-bump**, **sponsored reserves** y **on/off-ramp con Pollar**. Para llevar a producción o extender:
 
 1. **Persistencia de secretos del sponsor**: Ya implementada vía `SecretProvider` (variable de entorno y archivo cifrado). Para producción, usar AWS Secrets Manager, HashiCorp Vault, o similar.
-2. **Más assets**: Soportar otros tokens además de USDC (Circle SAC).
-3. **Frontend**: Conectar esta lógica a una interfaz de usuario para el onboarding.
-4. **Sponsored reserves en producción**: Implementar patrocinio de trustlines y cuentas manualmente para Mainnet (donde no existe Friendbot).
-5. **On-ramp/Off-ramp de USDC**: Integrar con proveedores de conversión moneda local ↔ USDC para completar el flujo de pago en moneda local.
+2. **Completar KYC en Pollar**: El on-ramp se queda en estado `KYC` (verificación de identidad). El usuario debe completar el KYC manualmente vía la URL que Pollar proporciona. Para producción, integrar este flujo en el frontend.
+3. **Más assets**: Soportar otros tokens además de USDC (Circle SAC).
+4. **Frontend**: Conectar esta lógica a una interfaz de usuario para el onboarding y on/off-ramp.
+5. **Sponsored reserves en producción**: Implementar patrocinio de trustlines y cuentas manualmente para Mainnet (donde no existe Friendbot).
+6. **SDK @pollar/core en navegador**: Para producción frontend, usar el SDK de Pollar con `login()`, `setUpRampWallet()`, `signRampLeg()` y `pollRampOrder()` en un entorno de navegador (no funciona en Node.js debido a `ORIGIN_NOT_ALLOWED`).
+7. **Off-ramp con USDC real**: Una vez completado el on-ramp y recibido USDC en la wallet del usuario, ejecutar el off-ramp para convertir USDC → fiat.
 
 ---
 

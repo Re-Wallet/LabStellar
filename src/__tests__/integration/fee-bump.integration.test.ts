@@ -1,10 +1,3 @@
-/**
- * Prueba de integración contra Stellar Testnet (red real).
- *
- * Solo se ejecuta cuando se definen E2E=true y SPONSOR_SECRET_KEY.
- * Valida el flujo completo: wallet A vía Sozu, pago USDC A→B firmado por A,
- * envuelto en fee-bump pagado por el sponsor.
- */
 import { describe, it, expect } from 'vitest';
 import {
   Keypair,
@@ -81,7 +74,8 @@ describe('fee-bump E2E (Testnet)', () => {
       const xdr = paymentTx.toXDR();
 
       // 4. Fee-bump: el sponsor paga la comisión.
-      const submitter = new StellarPaymentSubmitter(sponsorSecretProvider, HORIZON_URL);
+      const sponsorSecret = await sponsorSecretProvider.getSponsorSecret();
+      const submitter = new StellarPaymentSubmitter(sponsorSecret, HORIZON_URL);
       const sendPayment = new SendSponsoredPayment(submitter);
       const hash = await sendPayment.execute(xdr);
       expect(hash).toMatch(/^[a-f0-9]{64}$/);
@@ -92,7 +86,6 @@ describe('fee-bump E2E (Testnet)', () => {
       expect(Number(tx.fee_charged || 0)).toBeGreaterThan(0);
 
       // 6. El fee_account (pagador de la comisión) debe ser el sponsor.
-      const sponsorSecret = await sponsorSecretProvider.getSponsorSecret();
       const sponsor = Keypair.fromSecret(sponsorSecret);
       expect(tx.source_account).toBe(sponsor.publicKey());
     },

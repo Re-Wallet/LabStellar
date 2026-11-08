@@ -11,8 +11,8 @@ export class CreateOnRampQuote {
 
   async execute(params: {
     direction: 'on' | 'off';
-    fiat: string;
-    asset: string;
+    fiat: { currency: string; rail?: string; country?: string };
+    asset: { code: string; identifier?: string | null; chain: 'STELLAR' | 'POLYGON' | 'SOLANA' };
     amount: { value: string; denomination: 'in' | 'out' };
   }): Promise<import('../../application/ports/FiatRampProvider').RampQuote> {
     if (!params.amount || !params.amount.value || !params.amount.denomination) {

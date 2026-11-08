@@ -5,12 +5,12 @@ import { SecretProvider } from '../../application/ports/SecretProvider';
 
 describe('StellarSponsoredWalletProvider (adaptador)', () => {
   it('rechaza una clave secreta inválida', async () => {
-    const secretProvider = {
+    const sponsorSecretProvider = {
       getSponsorSecret: vi.fn().mockResolvedValue('SA_INVALID_SECRET_TOO_SHORT'),
     } as unknown as SecretProvider;
 
     const provider = new StellarSponsoredWalletProvider(
-      secretProvider,
+      sponsorSecretProvider,
       'https://horizon-testnet.stellar.org',
       Networks.TESTNET,
     );
@@ -43,7 +43,6 @@ describe('StellarSponsoredWalletProvider (adaptador)', () => {
 
     const horizon = { loadAccount, submitTransaction } as any;
 
-    // Mock del SecretProvider que devuelve el secreto del sponsor mockeado
     const secretProvider = {
       getSponsorSecret: vi.fn().mockResolvedValue(sponsorKeypair.secret()),
     } as unknown as SecretProvider;
@@ -63,7 +62,7 @@ describe('StellarSponsoredWalletProvider (adaptador)', () => {
     expect(wallet.address).toBe(userPublic);
     expect(wallet.secret).toBeDefined();
     expect(loadAccount).toHaveBeenCalledTimes(2); // sponsor + usuario
-    expect(submitTransaction).toHaveBeenCalledTimes(2); // createAccount + fee-bump
+    expect(submitTransaction).toHaveBeenCalledTimes(2); // createAccount + changeTrust
 
     randomSpy.mockRestore();
   });

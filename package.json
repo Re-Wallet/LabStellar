@@ -10,13 +10,16 @@
     "e2e:xlm-fee-bump-sponsored-reserves": "ts-node src/labstellar/e2e-xlm-sponsored-reserves-fee-bump.ts",
     "e2e:usdc-fee-bump-sponsored-reserves": "ts-node src/labstellar/e2e-usdc-sponsored-reserves-fee-bump.ts",
     "e2e:usdc-onramp-pollar": "ts-node src/labstellar/e2e-usdc-onramp-pollar.ts",
+    "e2e:usdc-offramp-pollar": "ts-node src/labstellar/e2e-usdc-offramp-pollar.ts",
+    "e2e:usdc-onramp-pollar-sdk": "ts-node src/labstellar/e2e-usdc-onramp-pollar-sdk.ts",
     "test": "vitest run",
     "test:integration": "vitest run --dir src/__tests__/integration",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^14.6.1",
-    "@sozu/faucet": "^0.2.0"
+    "@pollar/core": "^0.12.0",
+    "@sozu/faucet": "^0.2.0",
+    "@stellar/stellar-sdk": "^14.6.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
